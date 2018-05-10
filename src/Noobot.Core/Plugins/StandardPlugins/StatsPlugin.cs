@@ -55,13 +55,11 @@ namespace Noobot.Core.Plugins.StandardPlugins
 
         public string[] GetStats()
         {
-            var list = new List<string>(_stats.Count);
-
+            var list = new List<string>();
             lock (_lock)
             {
                 list.AddRange(_stats.Keys.Select(key => $"{key}: {_stats[key]}"));
             }
-
             return list.ToArray();
         }
 
@@ -86,8 +84,7 @@ namespace Noobot.Core.Plugins.StandardPlugins
 
         public void Stop()
         {
-            _log.Info("End stats:");
-            _log.Info(string.Join(Environment.NewLine + "   ", GetStats()));
+            _log.Info($"End stats: {Environment.NewLine}\t{string.Join(Environment.NewLine + "\t", GetStats())}");
         }
     }
 }

@@ -1,6 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
+using Noobot.Core.MessagingPipeline.Middleware.ValidHandles;
 using Noobot.Core.MessagingPipeline.Request;
 using Noobot.Core.MessagingPipeline.Response;
 
@@ -17,29 +17,26 @@ namespace Noobot.Core.MessagingPipeline.Middleware
             HandlerMappings = HandlerMappings ?? new HandlerMapping[0];
         }
 
-        protected IEnumerable<ResponseMessage> Next(IncomingMessage message)
+        protected internal IEnumerable<ResponseMessage> Next(IncomingMessage message)
         {
-            return _next.Invoke(message);
+            return _next?.Invoke(message) ?? new ResponseMessage[0];
         }
 
         public virtual IEnumerable<ResponseMessage> Invoke(IncomingMessage message)
         {
             foreach (var handlerMapping in HandlerMappings)
             {
-                foreach (string map in handlerMapping.ValidHandles)
+                foreach (IValidHandle handle in handlerMapping.ValidHandles)
                 {
-                    string text = message.FullText;
+                    string messageText = message.FullText;
                     if (handlerMapping.MessageShouldTargetBot)
                     {
-                        text = message.TargetedText;
+                        messageText = message.TargetedText;
                     }
-
-                    if (text.StartsWith(map, StringComparison.InvariantCultureIgnoreCase))
+                    
+                    if (handle.IsMatch(messageText))
                     {
-                        //TODO: How to do this
-                        //_log.Log($"Matched '{map}' on '{this.GetType().Name}'");
-
-                        foreach (var responseMessage in handlerMapping.EvaluatorFunc(message, map))
+                        foreach (var responseMessage in handlerMapping.EvaluatorFunc(message, handle))
                         {
                             yield return responseMessage;
                         }
@@ -69,7 +66,7 @@ namespace Noobot.Core.MessagingPipeline.Middleware
 
                 yield return new CommandDescription
                 {
-                    Command = string.Join(" | ", handlerMapping.ValidHandles.Select(x => $"`{x}`").OrderBy(x => x)),
+                    Command = string.Join(" | ", handlerMapping.ValidHandles.Select(x => $"`{x.HandleHelpText}`").OrderBy(x => x)),
                     Description = handlerMapping.Description
                 };
             }

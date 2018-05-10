@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Common.Logging;
 using Noobot.Core.Configuration;
 using Noobot.Core.DependencyResolution;
+using Noobot.Core.Extensions;
 using Noobot.Core.Logging;
 using Noobot.Core.MessagingPipeline.Middleware;
 using Noobot.Core.MessagingPipeline.Request;
@@ -36,12 +37,14 @@ namespace Noobot.Core
 
         public async Task Connect()
         {
-            string slackKey = _configReader.SlackApiKey();
+            string slackKey = _configReader.SlackApiKey;
 
             var connector = new SlackConnector.SlackConnector();
             _connection = await connector.Connect(slackKey);
             _connection.OnMessageReceived += MessageReceived;
             _connection.OnDisconnect += OnDisconnect;
+            _connection.OnReconnecting += OnReconnecting;
+            _connection.OnReconnect += OnReconnect;
 
             _log.Info("Connected!");
             _log.Info($"Bots Name: {_connection.Self.Name}");
@@ -53,6 +56,20 @@ namespace Noobot.Core
             StartPlugins();
         }
 
+        private Task OnReconnect()
+        {
+            _log.Info("Connection Restored!");
+            _container.GetPlugin<StatsPlugin>().IncrementState("ConnectionsRestored");
+            return Task.CompletedTask;
+        }
+
+        private Task OnReconnecting()
+        {
+            _log.Info("Attempting to reconnect to Slack...");
+            _container.GetPlugin<StatsPlugin>().IncrementState("Reconnecting");
+            return Task.CompletedTask;
+        }
+
         private bool _isDisconnecting;
         public void Disconnect()
         {
@@ -60,7 +77,10 @@ namespace Noobot.Core
 
             if (_connection != null && _connection.IsConnected)
             {
-                _connection.Disconnect();
+                _connection
+                    .Close()
+                    .GetAwaiter()
+                    .GetResult();
             }
         }
 
@@ -211,7 +231,7 @@ namespace Noobot.Core
         {
             var attachmentFields = new List<SlackAttachmentField>();
 
-            if (attachment != null && attachment.AttachmentFields != null)
+            if (attachment?.AttachmentFields != null)
             {
                 foreach (var attachmentField in attachment.AttachmentFields)
                 {
@@ -229,13 +249,19 @@ namespace Noobot.Core
 
         public string GetUserIdForUsername(string username)
         {
-            var user = _connection.UserCache.FirstOrDefault(x => x.Value.Name.Equals(username, StringComparison.InvariantCultureIgnoreCase));
+            var user = _connection.UserCache.FirstOrDefault(x => x.Value.Name.Equals(username, StringComparison.OrdinalIgnoreCase));
             return string.IsNullOrEmpty(user.Key) ? string.Empty : user.Key;
+        }
+
+        public string GetUserIdForUserEmail(string email)
+        {
+            var user = _connection.UserCache.WithEmailSet().FindByEmail(email);
+            return user?.Id ?? string.Empty;
         }
 
         public string GetChannelId(string channelName)
         {
-            var channel = _connection.ConnectedChannels().FirstOrDefault(x => x.Name.Equals(channelName, StringComparison.InvariantCultureIgnoreCase));
+            var channel = _connection.ConnectedChannels().FirstOrDefault(x => x.Name.Equals(channelName, StringComparison.OrdinalIgnoreCase));
             return channel != null ? channel.Id : string.Empty;
         }
 
@@ -289,7 +315,7 @@ namespace Noobot.Core
             if (_connection.UserCache.ContainsKey(userId))
             {
                 string username = "@" + _connection.UserCache[userId].Name;
-                chatHub = _connection.ConnectedDMs().FirstOrDefault(x => x.Name.Equals(username, StringComparison.InvariantCultureIgnoreCase));
+                chatHub = _connection.ConnectedDMs().FirstOrDefault(x => x.Name.Equals(username, StringComparison.OrdinalIgnoreCase));
             }
 
             if (chatHub == null && joinChannel)
